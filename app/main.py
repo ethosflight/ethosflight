@@ -183,3 +183,127 @@ def log_action(event_id: int, action: str, actor: str, details: str):
     conn.commit()
     conn.close()
     return {"message": "Action logged to GUARDIAN"}
+
+# ─── PILOT LAYER ───
+
+@app.post("/pilot/register")
+def register_pilot(full_name: str, certificate_number: str, certificate_type: str, email: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO pilots (full_name, certificate_number, certificate_type, email)
+        VALUES (?, ?, ?, ?)
+    """, full_name, certificate_number, certificate_type, email)
+    conn.commit()
+    cursor.execute("SELECT @@IDENTITY")
+    pilot_id = int(cursor.fetchone()[0])
+    conn.close()
+    return {"message": "Pilot registered", "pilot_id": pilot_id}
+
+@app.post("/pilot/flight-log")
+def add_flight_log(pilot_id: int, flight_date: str, aircraft_type: str,
+                   aircraft_ident: str, origin: str, destination: str,
+                   total_time: float, pic_time: float = 0, night_time: float = 0,
+                   instrument_time: float = 0, day_landings: int = 0,
+                   night_landings: int = 0, remarks: str = ""):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO flight_log (pilot_id, flight_date, aircraft_type, aircraft_ident,
+        origin, destination, total_time, pic_time, night_time, instrument_time,
+        day_landings, night_landings, remarks)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, pilot_id, flight_date, aircraft_type, aircraft_ident, origin, destination,
+        total_time, pic_time, night_time, instrument_time, day_landings, night_landings, remarks)
+    conn.commit()
+    conn.close()
+    return {"message": "Flight logged successfully"}
+
+@app.post("/pilot/medical")
+def add_medical(pilot_id: int, medical_class: int, issue_date: str, expiry_date: str, examiner: str = ""):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO medicals (pilot_id, medical_class, issue_date, expiry_date, examiner)
+        VALUES (?, ?, ?, ?, ?)
+    """, pilot_id, medical_class, issue_date, expiry_date, examiner)
+    conn.commit()
+    conn.close()
+    return {"message": "Medical certificate logged"}
+
+@app.post("/pilot/endorsement")
+def add_endorsement(pilot_id: int, endorsement_type: str, issue_date: str,
+                    expiry_date: str = None, endorsing_instructor: str = "", notes: str = ""):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO endorsements (pilot_id, endorsement_type, issue_date, expiry_date, endorsing_instructor, notes)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, pilot_id, endorsement_type, issue_date, expiry_date, endorsing_instructor, notes)
+    conn.commit()
+    conn.close()
+    return {"message": "Endorsement logged"}
+
+@app.get("/pilot/{pilot_id}/status")
+def pilot_status(pilot_id: int):
+    conn = get_connection()
+    cursor = conn.cursor()
+    from datetime import date, timedelta
+    today = date.today()
+    
+    # Medical status
+    cursor.execute("SELECT * FROM medicals WHERE pilot_id=? ORDER BY expiry_date DESC", pilot_id)
+    medical = cursor.fetchone()
+    medical_status = None
+    if medical:
+        expiry = medical[4]
+        days_left = (expiry - today).days
+        medical_status = {
+            "class": medical[2],
+            "expiry": str(expiry),
+            "days_remaining": days_left,
+            "status": "EXPIRED" if days_left < 0 else "WARNING" if days_left < 30 else "CURRENT"
+        }
+
+    # Flight totals
+    cursor.execute("""
+        SELECT SUM(total_time), SUM(pic_time), SUM(night_time),
+               SUM(instrument_time), SUM(day_landings), SUM(night_landings)
+        FROM flight_log WHERE pilot_id=?
+    """, pilot_id)
+    totals = cursor.fetchone()
+
+    # Currency — last 90 days landings
+    cursor.execute("""
+        SELECT SUM(day_landings + night_landings)
+        FROM flight_log WHERE pilot_id=? AND flight_date >= ?
+    """, pilot_id, str(today - timedelta(days=90)))
+    recent_landings = cursor.fetchone()[0] or 0
+
+    # Endorsements expiring soon
+    cursor.execute("""
+        SELECT endorsement_type, expiry_date FROM endorsements
+        WHERE pilot_id=? AND expiry_date IS NOT NULL AND expiry_date <= ?
+    """, pilot_id, str(today + timedelta(days=60)))
+    expiring = cursor.fetchall()
+
+    conn.close()
+    return {
+        "pilot_id": pilot_id,
+        "medical": medical_status,
+        "flight_totals": {
+            "total_time": float(totals[0] or 0),
+            "pic_time": float(totals[1] or 0),
+            "night_time": float(totals[2] or 0),
+            "instrument_time": float(totals[3] or 0),
+            "day_landings": int(totals[4] or 0),
+            "night_landings": int(totals[5] or 0)
+        },
+        "currency": {
+            "landings_last_90_days": int(recent_landings),
+            "passenger_currency": "CURRENT" if recent_landings >= 3 else "NOT CURRENT"
+        },
+        "endorsements_expiring_soon": [
+            {"type": e[0], "expiry": str(e[1])} for e in expiring
+        ]
+    }
