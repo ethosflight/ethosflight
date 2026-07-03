@@ -54,3 +54,5 @@ Orange Analytics and Technology Solutions LLC
 ---
 
 *EthosFlight is proprietary software developed by Orange Analytics and Technology Solutions LLC.*
+
+![EthosFlight Logo](brand/ethosflight-logo.png)
