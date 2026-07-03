@@ -45,7 +45,7 @@ DOI: [10.5281/zenodo.21114760](https://doi.org/10.5281/zenodo.21114760)
 ---
 
 ## 👤 Author
-**Mohamad (Max)**
+**Mazhar (Maz)**
 FAA Commercial Helicopter Pilot | CS Engineer | MBA in Business Intelligence
 Orange Analytics and Technology Solutions LLC
 - ORCID: [0009-0003-6252-4061](https://orcid.org/0009-0003-6252-4061)
